@@ -1,234 +1,34 @@
 (function () {
   'use strict';
-
-  var data = window.RADAR_DATA || window.RADAR;
+  var data = window.RADAR;
   if (!data) return;
-
-  var root = document.getElementById('board');
-  var query = '';
-  var category = 'all';
-  var chain = 'all';
-  var sortKey = 'implied_value_usd';
-  var sortDirection = -1;
-  var selected = null;
-
-  function element(tag, attributes) {
-    var node = document.createElement(tag);
-    var children = Array.prototype.slice.call(arguments, 2);
-
-    Object.keys(attributes || {}).forEach(function (key) {
-      var value = attributes[key];
-      if (key === 'text') node.textContent = value;
-      else if (key === 'class') node.className = value;
-      else if (key.indexOf('on') === 0) node.addEventListener(key.slice(2), value);
-      else node.setAttribute(key, value);
-    });
-
-    children.flat().filter(Boolean).forEach(function (child) {
-      node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
-    });
-    return node;
-  }
-
-  function formatMoney(value) {
-    if (value == null) return '—';
-    if (value >= 1e9) return '$' + (value / 1e9).toFixed(2) + 'B';
-    if (value >= 1e6) return '$' + (value / 1e6).toFixed(1) + 'M';
-    if (value >= 1e3) return '$' + Math.round(value / 1e3) + 'K';
-    return '$' + Math.round(value);
-  }
-
-  function formatPercent(value) {
-    if (value == null) return '—';
-    return (value > 0 ? '+' : '') + value.toFixed(2) + '%';
-  }
-
-  function buildOptions(values, label, filterName) {
-    return element('select', {
-      onchange: function (event) {
-        if (filterName === 'category') category = event.target.value;
-        else chain = event.target.value;
-        render();
-      }
-    },
-    element('option', { value: 'all', text: label }),
-    values.map(function (value) {
-      return element('option', { value: value, text: value });
-    }));
-  }
-
-  function getFilteredRows() {
-    return data.rows.filter(function (row) {
-      var matchesCategory = category === 'all' || (row.category || 'Other') === category;
-      var matchesChain = chain === 'all' || row.chains.includes(chain);
-      var searchableText = [row.name, row.slug, row.category, (row.chains || []).join(' ')].join(' ').toLowerCase();
-      var matchesQuery = !query || searchableText.includes(query.toLowerCase());
-      return matchesCategory && matchesChain && matchesQuery;
-    }).sort(function (left, right) {
-      var leftValue = left[sortKey];
-      var rightValue = right[sortKey];
-      if (leftValue < rightValue) return -sortDirection;
-      if (leftValue > rightValue) return sortDirection;
-      return left.slug.localeCompare(right.slug);
-    });
-  }
-
-  function buildProtocolRow(row) {
-    return element('tr', {
-      onclick: function () {
-        selected = row;
-        render();
-      }
-    },
-    element('td', { text: row.rank == null ? '—' : row.rank }),
-    element('td', { text: row.name }),
-    element('td', { text: row.category || 'Other' }),
-    element('td', { text: (row.chains || []).join(', ') }),
-    element('td', { text: formatMoney(row.tvl_usd) }),
-    element('td', { text: formatPercent(row.change_7d) }),
-    element('td', { text: formatMoney(row.implied_value_usd) }),
-    element('td', { text: row.tvl_usd ? (row.implied_value_usd / row.tvl_usd).toFixed(2) + '×' : '—' }));
-  }
-
-  function buildTable(rows, columns) {
-    var header = element('tr', {}, columns.map(function (column) {
-      var key = column[0];
-      var label = column[1];
-      return element('th', {
-        onclick: function () {
-          if (sortKey === key) sortDirection = -sortDirection;
-          else {
-            sortKey = key;
-            sortDirection = -1;
-          }
-          render();
-        },
-        text: label + (sortKey === key ? (sortDirection < 0 ? ' ↓' : ' ↑') : '')
-      });
-    }));
-
-    return element('div', { class: 'scroll' },
-      element('table', {},
-        element('thead', {}, header),
-        element('tbody', {}, rows.map(buildProtocolRow))));
-  }
-
-  function renderDetail() {
-    if (!selected) return null;
-    var model = selected.model_breakdown || {};
-    var metrics = [
-      ['Category multiple', model.category_multiple],
-      ['Momentum', model.momentum],
-      ['Maturity', model.maturity],
-      ['Reach', model.reach],
-      ['Implied', formatMoney(selected.implied_value_usd)]
-    ];
-
-    return element('section', { class: 'panel' },
-      element('button', {
-        class: 'close',
-        onclick: function () {
-          selected = null;
-          render();
-        },
-        text: 'Close ×'
-      }),
-      element('h2', { text: selected.name + ' · model breakdown' }),
-      element('div', { class: 'metrics' }, metrics.map(function (metric) {
-        return element('div', {},
-          element('small', { text: metric[0] }),
-          element('b', { text: String(metric[1] ?? '—') }));
-      })),
-      element('h3', { text: 'Farm plan' }),
-      element('ol', {}, (selected.farm_steps || []).map(function (step) {
-        return element('li', {},
-          element('b', { text: step.text || step }),
-          typeof step === 'string' ? '' : element('p', { class: 'muted', text: step.cost + ' · ' + step.time }));
-      })));
-  }
-
-  function renderHeader() {
-    return element('header', { class: 'panel hero' },
-      element('div', {},
-        element('p', { class: 'eyebrow', text: 'TOKEN RADAR · ' + data.model_version }),
-        element('h1', { text: 'Pre-token protocols, ranked by implied value' }),
-        element('p', { class: 'muted', text: 'Snapshot ' + data.as_of + ' · ' + (data.model.category_method || 'Snapshot based valuation model') })),
-      element('div', { class: 'stats' },
-        element('b', { text: String(data.board_size) + ' scored' }),
-        element('b', { text: String(data.early_size) + ' early radar' }),
-        element('b', { text: String(data.live_size) + ' live tokens' })));
-  }
-
-  function renderControls() {
-    var categories = Array.from(new Set(data.rows.map(function (row) { return row.category || 'Other'; }))).sort();
-    var chains = Array.from(new Set(data.rows.flatMap(function (row) { return row.chains || []; }))).sort();
-    var search = element('input', {
-      type: 'search',
-      placeholder: 'Search protocols',
-      value: query,
-      oninput: function (event) {
-        query = event.target.value;
-        render();
-      }
-    });
-
-    return element('div', { class: 'toolbar' },
-      search,
-      buildOptions(categories, 'All categories', 'category'),
-      buildOptions(chains, 'All chains', 'chain'));
-  }
-
-  function renderMainSection() {
-    return element('section', { class: 'panel' },
-      renderControls(),
-      buildTable(getFilteredRows(), [
-        ['rank', 'Rank'], ['name', 'Protocol'], ['tvl_usd', 'TVL'],
-        ['change_7d', '7d'], ['implied_value_usd', 'Implied'], ['ratio', 'Value / TVL']
-      ]));
-  }
-
-  function renderEarlySection() {
-    return element('section', { class: 'panel' },
-      element('h2', { text: 'Early radar · below floor' }),
-      buildTable(data.radar || [], [['name', 'Protocol'], ['tvl_usd', 'TVL'], ['change_7d', '7d']]));
-  }
-
-  function buildLiveRow(row) {
-    return element('tr', {},
-      element('td', { text: row.name }),
-      element('td', { text: row.category || 'Other' }),
-      element('td', { text: formatMoney(row.tvl_usd) }),
-      element('td', { text: formatPercent(row.change_7d) }),
-      element('td', { text: formatMoney(row.mcap_usd) }));
-  }
-
-  function renderLiveSection() {
-    return element('section', { class: 'panel' },
-      element('h2', { text: 'Live tokens · top market cap' }),
-      element('div', { class: 'scroll' },
-        element('table', {},
-          element('thead', {}, element('tr', {}, ['Protocol', 'Category', 'TVL', '7d', 'Market cap'].map(function (label) {
-            return element('th', { text: label });
-          }))),
-          element('tbody', {}, (data.live || []).map(buildLiveRow)))));
-  }
-
-  function render() {
-    root.textContent = '';
-    var base = element('div', { class: 'shell' },
-      renderHeader(),
-      renderMainSection());
-
-    base.appendChild(renderEarlySection());
-    base.appendChild(renderLiveSection());
-    base.appendChild(element('p', {
-      class: 'muted foot',
-      text: 'Model radar-2 · implied = max(1, round(TVL × category median multiple × momentum × maturity × reach). Category multiples use live-token median market-cap/TVL; categories with fewer than 3 peers use the global median.'
-    }));
-    if (selected) base.appendChild(renderDetail());
-    root.appendChild(base);
-    root.setAttribute('aria-busy', 'false');
-  }
-
+  var root=document.getElementById('board'), query='', category='all', chain='all', sortKey='implied_value_usd', sortDirection=-1, selected=null;
+  function element(tag,attributes){var node=document.createElement(tag),children=Array.prototype.slice.call(arguments,2);Object.keys(attributes||{}).forEach(function(k){var v=attributes[k];if(k==='text')node.textContent=v;else if(k==='class')node.className=v;else if(k.indexOf('on')===0)node.addEventListener(k.slice(2),v);else node.setAttribute(k,v);});children.flat().filter(Boolean).forEach(function(c){node.appendChild(typeof c==='string'?document.createTextNode(c):c);});return node;}
+  function money(v){if(v==null)return '—';if(v>=1e9)return '$'+(v/1e9).toFixed(2)+'B';if(v>=1e6)return '$'+(v/1e6).toFixed(1)+'M';if(v>=1e3)return '$'+Math.round(v/1e3)+'K';return '$'+Math.round(v);}
+  function pct(v){return v==null?'—':(v>0?'+':'')+v.toFixed(2)+'%';}
+  function options(values,label,key){return element('select',{onchange:function(e){if(key==='category')category=e.target.value;else chain=e.target.value;render();}},element('option',{value:'all',text:label}),values.map(function(v){return element('option',{value:v,text:v});}));}
+  function filtered(){return data.rows.filter(function(r){var q=[r.name,r.slug,r.category,(r.chains||[]).join(' ')].join(' ').toLowerCase();return(category==='all'||(r.category||'Other')===category)&&(chain==='all'||(r.chains||[]).includes(chain))&&(!query||q.includes(query.toLowerCase()));}).sort(function(a,b){var x=a[sortKey],y=b[sortKey];return x<y?-sortDirection:x>y?sortDirection:a.slug.localeCompare(b.slug);});}
+  function rowView(r){return element('tr',{onclick:function(){selected=r;render();}},element('td',{text:r.rank==null?'—':r.rank}),element('td',{text:r.name}),element('td',{text:r.category||'Other'}),element('td',{text:(r.chains||[]).join(', ')}),element('td',{text:money(r.tvl_usd)}),element('td',{text:pct(r.change_7d)}),element('td',{text:money(r.implied_value_usd)}),element('td',{text:r.tvl_usd?(r.implied_value_usd/r.tvl_usd).toFixed(2)+'×':'—'}));}
+  function table(rows,columns){var head=element('tr',{},columns.map(function(c){return element('th',{onclick:function(){if(sortKey===c[0])sortDirection=-sortDirection;else{sortKey=c[0];sortDirection=-1;}render();},text:c[1]+(sortKey===c[0]?(sortDirection<0?' ↓':' ↑'):'')});}));return element('div',{class:'scroll'},element('table',{},element('thead',{},head),element('tbody',{},rows.map(rowView))));}
+  var plans={
+    Dexes:[['Swap a small amount in a core pool','gas only, about $1-5','10 min'],['Add liquidity to a deep pool','capital at risk: market exposure','15 min'],['Return later to make a second swap','gas only, about $1-5','10 min'],['Check the app for points and vote if eligible','no cost','5 min']],
+    Lending:[['Supply a small amount of collateral','capital at risk: market exposure','10 min'],['Borrow a modest amount and repay it','fees and interest may apply','15 min'],['Repeat a supply action next week','capital at risk: market exposure','10 min'],['Check governance and vote if eligible','no cost','5 min']],
+    Bridge:[['Bridge a small asset amount to a supported chain','network fees apply','15 min'],['Use the received funds in a supported app','capital at risk: market exposure','10 min'],['Bridge back after confirming settlement','network fees apply','15 min'],['Check for a bridge task or campaign','no cost','5 min']],
+    'Liquid Staking':[['Stake a small amount of the chain asset','capital at risk: market exposure','10 min'],['Use the receipt token in a supported app','capital at risk: market exposure','15 min'],['Add or remove a small stake later','network fees apply','10 min'],['Check governance and vote if eligible','no cost','5 min']],
+    Derivatives:[['Deposit a small margin balance','capital at risk: market exposure','10 min'],['Open and close a low-risk test position','capital at risk: liquidation possible','15 min'],['Repeat a small trade on another day','trading fees apply','10 min'],['Check the protocol task board','no cost','5 min']],
+    Yield:[['Deposit a small amount into a vault','capital at risk: market exposure','10 min'],['Claim or compound once if available','network fees may apply','10 min'],['Make a second deposit action next week','capital at risk: market exposure','10 min'],['Check governance and vote if eligible','no cost','5 min']],
+    CDP:[['Open a collateralized position with a small amount','capital at risk: liquidation possible','15 min'],['Review collateral ratio and add collateral','capital at risk: market exposure','10 min'],['Repay a portion of the debt','fees and interest may apply','10 min'],['Check protocol guidance and governance','no cost','5 min']],
+    'Risk Curators':[['Deposit a small amount into a curated market','capital at risk: market exposure','10 min'],['Review the curator and market parameters','no cost','10 min'],['Return later to adjust or withdraw a position','network fees may apply','10 min'],['Check curator updates and governance','no cost','5 min']],
+    default:[['Connect a wallet and complete the core app action','network fees may apply','10 min'],['Make a small supported transaction','capital at risk: market exposure','10 min'],['Return next week for another action','network fees may apply','10 min'],['Check governance or protocol tasks','no cost','5 min']]
+  };
+  function planFor(c){var s=(c||'').toLowerCase(),k=/dex|exchange|swap/.test(s)?'Dexes':/lend|credit/.test(s)?'Lending':/bridge/.test(s)?'Bridge':/liquid staking|staking/.test(s)?'Liquid Staking':/derivative|perpetual/.test(s)?'Derivatives':/yield|farm|vault/.test(s)?'Yield':/cdp|collateralized debt/.test(s)?'CDP':/risk curator/.test(s)?'Risk Curators':'default';return plans[k];}
+  function detail(){if(!selected)return null;var m=selected, plan=planFor(m.category);return element('section',{class:'panel'},element('button',{class:'close',onclick:function(){selected=null;render();},text:'Close ×'}),element('h2',{text:m.name+' · model breakdown'}),element('div',{class:'metrics'},[['Category multiple',m.growth_multiplier!=null?m.implied_value_usd&&m.tvl_usd?(m.implied_value_usd/(m.tvl_usd*m.growth_multiplier*m.maturity_multiplier)).toFixed(4):'—':'—'],['Momentum',m.growth_multiplier],['Maturity',m.maturity_multiplier],['Age (days)',m.age_days],['Implied',money(m.implied_value_usd)]].map(function(x){return element('div',{},element('small',{text:x[0]}),element('b',{text:String(x[1]??'—')}));})),element('h3',{text:'Farm plan'}),element('ol',{class:'steps'},plan.map(function(s){return element('li',{},element('b',{text:s[0]}),element('p',{class:'muted',text:s[1]+' · '+s[2]}));})));}
+  function header(){return element('header',{class:'panel hero'},element('div',{},element('p',{class:'eyebrow',text:'TOKEN RADAR · '+data.model_version}),element('h1',{text:'Pre-token protocols, ranked by implied value'}),element('p',{class:'muted',text:'Radar-2: median live-token mcap/TVL by category (at least 3 peers, clamped 0.05–3; else global median), adjusted by momentum and maturity. Snapshot '+data.as_of+' · '+data.watchlist_size+' watchlist · '+data.board_size+' board · '+data.early_size+' early · '+data.live_size+' live.'})),element('div',{class:'stats'},element('b',{text:String(data.board_size)+' scored'}),element('b',{text:String(data.early_size)+' early radar'}),element('b',{text:String(data.live_size)+' live tokens'})));}
+  function controls(){var cats=Array.from(new Set(data.rows.map(function(r){return r.category||'Other';}))).sort(),chains=Array.from(new Set(data.rows.flatMap(function(r){return r.chains||[];}))).sort();return element('div',{class:'toolbar'},element('input',{type:'search',placeholder:'Search protocols',value:query,oninput:function(e){query=e.target.value;render();}}),options(cats,'All categories','category'),options(chains,'All chains','chain'));}
+  function mainSection(){return element('section',{class:'panel'},controls(),table(filtered(),[['rank','Rank'],['name','Protocol'],['tvl_usd','TVL'],['change_7d','7d'],['implied_value_usd','Implied'],['ratio','Value / TVL']]));}
+  function earlySection(){return element('section',{class:'panel'},element('h2',{text:'Early radar · below floor'}),table(data.rows.filter(function(r){return r.tvl_usd<data.floor_usd;}),[['name','Protocol'],['tvl_usd','TVL'],['change_7d','7d']]));}
+  function liveRow(r){return element('tr',{},element('td',{text:r.name}),element('td',{text:r.category||'Other'}),element('td',{text:money(r.tvl_usd)}),element('td',{text:pct(r.change_7d)}),element('td',{text:money(r.mcap_usd)}));}
+  function liveSection(){return element('section',{class:'panel'},element('h2',{text:'Live tokens · top market cap'}),element('div',{class:'scroll'},element('table',{},element('thead',{},element('tr',{},['Protocol','Category','TVL','7d','Market cap'].map(function(x){return element('th',{text:x});}))),element('tbody',{},(data.live||[]).map(liveRow)))));}
+  function render(){root.textContent='';var base=element('div',{class:'shell'},header(),mainSection());base.appendChild(earlySection());base.appendChild(liveSection());base.appendChild(element('p',{class:'muted foot',text:'Model radar-2 · implied = max(1, round(TVL × category median multiple × momentum × maturity). Category multiple uses live-token median mcap/TVL, clamped to 0.05–3; categories with fewer than 3 peers use the global median.'}));if(selected)base.appendChild(detail());root.appendChild(base);root.setAttribute('aria-busy','false');}
   render();
 })();
