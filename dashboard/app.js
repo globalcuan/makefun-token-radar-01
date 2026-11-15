@@ -1,1 +1,234 @@
-(function(){'use strict';var D=window.RADAR_DATA||window.RADAR;if(!D)return;var root=document.getElementById('board'),q='',cat='all',chain='all',sort='implied_value_usd',dir=-1,selected=null;function e(t,a,...kids){var n=document.createElement(t);Object.keys(a||{}).forEach(k=>{if(k==='text')n.textContent=a[k];else if(k==='class')n.className=a[k];else if(k.startsWith('on'))n.addEventListener(k.slice(2),a[k]);else n.setAttribute(k,a[k])});kids.flat().filter(Boolean).forEach(x=>n.appendChild(typeof x==='string'?document.createTextNode(x):x));return n}function usd(n){if(n==null)return'—';return n>=1e9?'$'+(n/1e9).toFixed(2)+'B':n>=1e6?'$'+(n/1e6).toFixed(1)+'M':n>=1e3?'$'+Math.round(n/1e3)+'K':'$'+Math.round(n)}function pct(n){return n==null?'—':(n>0?'+':'')+n.toFixed(2)+'%'}function opts(values,label,val){return e('select',{onchange:function(ev){if(val==='category')cat=ev.target.value;else chain=ev.target.value;render()}},e('option',{value:'all',text:label}),values.map(x=>e('option',{value:x,text:x})))}function filtered(){return D.rows.filter(r=>(cat==='all'||(r.category||'Other')===cat)&&(chain==='all'||r.chains.includes(chain))&&(!q||[r.name,r.slug,r.category,(r.chains||[]).join(' ')].join(' ').toLowerCase().includes(q.toLowerCase()))).sort((a,b)=>{var x=a[sort],y=b[sort];if(x<y)return-dir;if(x>y)return dir;return a.slug.localeCompare(b.slug)})}function table(rows,keys){var th=e('tr',{},keys.map(([k,label])=>e('th',{onclick:function(){if(sort===k)dir=-dir;else{sort=k;dir=-1}render()},text:label+(sort===k?(dir<0?' ↓':' ↑'):'' )})));return e('div',{class:'scroll'},e('table',{},e('thead',{},th),e('tbody',{},rows.map(r=>e('tr',{onclick:function(){selected=r;render()}},e('td',{text:r.rank==null?'—':r.rank}),e('td',{text:r.name}),e('td',{text:r.category||'Other'}),e('td',{text:(r.chains||[]).join(', ')}),e('td',{text:usd(r.tvl_usd)}),e('td',{text:pct(r.change_7d)}),e('td',{text:usd(r.implied_value_usd)}),e('td',{text:r.tvl_usd?((r.implied_value_usd/r.tvl_usd).toFixed(2)+'×'):'—'}))))))}function detail(){if(!selected)return null;var m=selected.model_breakdown||{};return e('section',{class:'panel'},e('button',{class:'close',onclick:function(){selected=null;render()},text:'Close ×'}),e('h2',{text:selected.name+' · model breakdown'}),e('div',{class:'metrics'},[['Category multiple',m.category_multiple],['Momentum',m.momentum],['Maturity',m.maturity],['Reach',m.reach],['Implied',usd(selected.implied_value_usd)]].map(x=>e('div',{},e('small',{text:x[0]}),e('b',{text:String(x[1]??'—')})))),e('h3',{text:'Farm plan'}),e('ol',{},(selected.farm_steps||[]).map(s=>e('li',{},e('b',{text:s.text||s}),typeof s==='string'?'':e('p',{class:'muted',text:s.cost+' · '+s.time})))))}function render(){root.textContent='';var cats=[...new Set(D.rows.map(r=>r.category||'Other'))].sort(),chains=[...new Set(D.rows.flatMap(r=>r.chains||[]))].sort(),search=e('input',{type:'search',placeholder:'Search protocols',value:q,oninput:function(ev){q=ev.target.value;render()}}),base=e('div',{class:'shell'},e('header',{class:'panel hero'},e('div',{},e('p',{class:'eyebrow',text:'TOKEN RADAR · '+D.model_version}),e('h1',{text:'Pre-token protocols, ranked by implied value'}),e('p',{class:'muted',text:'Snapshot '+D.as_of+' · '+(D.model.category_method||'Snapshot based valuation model')})),e('div',{class:'stats'},e('b',{text:String(D.board_size)+' scored'}),e('b',{text:String(D.early_size)+' early radar'}),e('b',{text:String(D.live_size)+' live tokens'}))),e('section',{class:'panel'},e('div',{class:'toolbar'},search,opts(cats,'All categories','category'),opts(chains,'All chains','chain')),table(filtered(),[['rank','Rank'],['name','Protocol'],['tvl_usd','TVL'],['change_7d','7d'],['implied_value_usd','Implied'],['ratio','Value / TVL']])));base.appendChild(e('section',{class:'panel'},e('h2',{text:'Early radar · below floor'}),table(D.radar||[],[['name','Protocol'],['tvl_usd','TVL'],['change_7d','7d']])));base.appendChild(e('section',{class:'panel'},e('h2',{text:'Live tokens · top market cap'}),e('div',{class:'scroll'},e('table',{},e('thead',{},e('tr',{},['Protocol','Category','TVL','7d','Market cap'].map(x=>e('th',{text:x})))),e('tbody',{},(D.live||[]).map(r=>e('tr',{},e('td',{text:r.name}),e('td',{text:r.category||'Other'}),e('td',{text:usd(r.tvl_usd)}),e('td',{text:pct(r.change_7d)}),e('td',{text:usd(r.mcap_usd)}))))))));base.appendChild(e('p',{class:'muted foot',text:'Model radar-2 · implied = max(1, round(TVL × category median multiple × momentum × maturity × reach). Category multiples use live-token median market-cap/TVL; categories with fewer than 3 peers use the global median.'}));if(selected)base.appendChild(detail());root.appendChild(base);root.setAttribute('aria-busy','false')}render()})();
+(function () {
+  'use strict';
+
+  var data = window.RADAR_DATA || window.RADAR;
+  if (!data) return;
+
+  var root = document.getElementById('board');
+  var query = '';
+  var category = 'all';
+  var chain = 'all';
+  var sortKey = 'implied_value_usd';
+  var sortDirection = -1;
+  var selected = null;
+
+  function element(tag, attributes) {
+    var node = document.createElement(tag);
+    var children = Array.prototype.slice.call(arguments, 2);
+
+    Object.keys(attributes || {}).forEach(function (key) {
+      var value = attributes[key];
+      if (key === 'text') node.textContent = value;
+      else if (key === 'class') node.className = value;
+      else if (key.indexOf('on') === 0) node.addEventListener(key.slice(2), value);
+      else node.setAttribute(key, value);
+    });
+
+    children.flat().filter(Boolean).forEach(function (child) {
+      node.appendChild(typeof child === 'string' ? document.createTextNode(child) : child);
+    });
+    return node;
+  }
+
+  function formatMoney(value) {
+    if (value == null) return '—';
+    if (value >= 1e9) return '$' + (value / 1e9).toFixed(2) + 'B';
+    if (value >= 1e6) return '$' + (value / 1e6).toFixed(1) + 'M';
+    if (value >= 1e3) return '$' + Math.round(value / 1e3) + 'K';
+    return '$' + Math.round(value);
+  }
+
+  function formatPercent(value) {
+    if (value == null) return '—';
+    return (value > 0 ? '+' : '') + value.toFixed(2) + '%';
+  }
+
+  function buildOptions(values, label, filterName) {
+    return element('select', {
+      onchange: function (event) {
+        if (filterName === 'category') category = event.target.value;
+        else chain = event.target.value;
+        render();
+      }
+    },
+    element('option', { value: 'all', text: label }),
+    values.map(function (value) {
+      return element('option', { value: value, text: value });
+    }));
+  }
+
+  function getFilteredRows() {
+    return data.rows.filter(function (row) {
+      var matchesCategory = category === 'all' || (row.category || 'Other') === category;
+      var matchesChain = chain === 'all' || row.chains.includes(chain);
+      var searchableText = [row.name, row.slug, row.category, (row.chains || []).join(' ')].join(' ').toLowerCase();
+      var matchesQuery = !query || searchableText.includes(query.toLowerCase());
+      return matchesCategory && matchesChain && matchesQuery;
+    }).sort(function (left, right) {
+      var leftValue = left[sortKey];
+      var rightValue = right[sortKey];
+      if (leftValue < rightValue) return -sortDirection;
+      if (leftValue > rightValue) return sortDirection;
+      return left.slug.localeCompare(right.slug);
+    });
+  }
+
+  function buildProtocolRow(row) {
+    return element('tr', {
+      onclick: function () {
+        selected = row;
+        render();
+      }
+    },
+    element('td', { text: row.rank == null ? '—' : row.rank }),
+    element('td', { text: row.name }),
+    element('td', { text: row.category || 'Other' }),
+    element('td', { text: (row.chains || []).join(', ') }),
+    element('td', { text: formatMoney(row.tvl_usd) }),
+    element('td', { text: formatPercent(row.change_7d) }),
+    element('td', { text: formatMoney(row.implied_value_usd) }),
+    element('td', { text: row.tvl_usd ? (row.implied_value_usd / row.tvl_usd).toFixed(2) + '×' : '—' }));
+  }
+
+  function buildTable(rows, columns) {
+    var header = element('tr', {}, columns.map(function (column) {
+      var key = column[0];
+      var label = column[1];
+      return element('th', {
+        onclick: function () {
+          if (sortKey === key) sortDirection = -sortDirection;
+          else {
+            sortKey = key;
+            sortDirection = -1;
+          }
+          render();
+        },
+        text: label + (sortKey === key ? (sortDirection < 0 ? ' ↓' : ' ↑') : '')
+      });
+    }));
+
+    return element('div', { class: 'scroll' },
+      element('table', {},
+        element('thead', {}, header),
+        element('tbody', {}, rows.map(buildProtocolRow))));
+  }
+
+  function renderDetail() {
+    if (!selected) return null;
+    var model = selected.model_breakdown || {};
+    var metrics = [
+      ['Category multiple', model.category_multiple],
+      ['Momentum', model.momentum],
+      ['Maturity', model.maturity],
+      ['Reach', model.reach],
+      ['Implied', formatMoney(selected.implied_value_usd)]
+    ];
+
+    return element('section', { class: 'panel' },
+      element('button', {
+        class: 'close',
+        onclick: function () {
+          selected = null;
+          render();
+        },
+        text: 'Close ×'
+      }),
+      element('h2', { text: selected.name + ' · model breakdown' }),
+      element('div', { class: 'metrics' }, metrics.map(function (metric) {
+        return element('div', {},
+          element('small', { text: metric[0] }),
+          element('b', { text: String(metric[1] ?? '—') }));
+      })),
+      element('h3', { text: 'Farm plan' }),
+      element('ol', {}, (selected.farm_steps || []).map(function (step) {
+        return element('li', {},
+          element('b', { text: step.text || step }),
+          typeof step === 'string' ? '' : element('p', { class: 'muted', text: step.cost + ' · ' + step.time }));
+      })));
+  }
+
+  function renderHeader() {
+    return element('header', { class: 'panel hero' },
+      element('div', {},
+        element('p', { class: 'eyebrow', text: 'TOKEN RADAR · ' + data.model_version }),
+        element('h1', { text: 'Pre-token protocols, ranked by implied value' }),
+        element('p', { class: 'muted', text: 'Snapshot ' + data.as_of + ' · ' + (data.model.category_method || 'Snapshot based valuation model') })),
+      element('div', { class: 'stats' },
+        element('b', { text: String(data.board_size) + ' scored' }),
+        element('b', { text: String(data.early_size) + ' early radar' }),
+        element('b', { text: String(data.live_size) + ' live tokens' })));
+  }
+
+  function renderControls() {
+    var categories = Array.from(new Set(data.rows.map(function (row) { return row.category || 'Other'; }))).sort();
+    var chains = Array.from(new Set(data.rows.flatMap(function (row) { return row.chains || []; }))).sort();
+    var search = element('input', {
+      type: 'search',
+      placeholder: 'Search protocols',
+      value: query,
+      oninput: function (event) {
+        query = event.target.value;
+        render();
+      }
+    });
+
+    return element('div', { class: 'toolbar' },
+      search,
+      buildOptions(categories, 'All categories', 'category'),
+      buildOptions(chains, 'All chains', 'chain'));
+  }
+
+  function renderMainSection() {
+    return element('section', { class: 'panel' },
+      renderControls(),
+      buildTable(getFilteredRows(), [
+        ['rank', 'Rank'], ['name', 'Protocol'], ['tvl_usd', 'TVL'],
+        ['change_7d', '7d'], ['implied_value_usd', 'Implied'], ['ratio', 'Value / TVL']
+      ]));
+  }
+
+  function renderEarlySection() {
+    return element('section', { class: 'panel' },
+      element('h2', { text: 'Early radar · below floor' }),
+      buildTable(data.radar || [], [['name', 'Protocol'], ['tvl_usd', 'TVL'], ['change_7d', '7d']]));
+  }
+
+  function buildLiveRow(row) {
+    return element('tr', {},
+      element('td', { text: row.name }),
+      element('td', { text: row.category || 'Other' }),
+      element('td', { text: formatMoney(row.tvl_usd) }),
+      element('td', { text: formatPercent(row.change_7d) }),
+      element('td', { text: formatMoney(row.mcap_usd) }));
+  }
+
+  function renderLiveSection() {
+    return element('section', { class: 'panel' },
+      element('h2', { text: 'Live tokens · top market cap' }),
+      element('div', { class: 'scroll' },
+        element('table', {},
+          element('thead', {}, element('tr', {}, ['Protocol', 'Category', 'TVL', '7d', 'Market cap'].map(function (label) {
+            return element('th', { text: label });
+          }))),
+          element('tbody', {}, (data.live || []).map(buildLiveRow)))));
+  }
+
+  function render() {
+    root.textContent = '';
+    var base = element('div', { class: 'shell' },
+      renderHeader(),
+      renderMainSection());
+
+    base.appendChild(renderEarlySection());
+    base.appendChild(renderLiveSection());
+    base.appendChild(element('p', {
+      class: 'muted foot',
+      text: 'Model radar-2 · implied = max(1, round(TVL × category median multiple × momentum × maturity × reach). Category multiples use live-token median market-cap/TVL; categories with fewer than 3 peers use the global median.'
+    }));
+    if (selected) base.appendChild(renderDetail());
+    root.appendChild(base);
+    root.setAttribute('aria-busy', 'false');
+  }
+
+  render();
+})();
